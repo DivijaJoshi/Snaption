@@ -1,0 +1,1173 @@
+<html lang="en"><head>
+    <meta charset="utf-8">
+    <title>Caption Studio — AI Caption &amp; Analytics</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin=""></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin=""></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+  </head>
+  <body class="min-h-screen bg-neutral-950 text-neutral-100 antialiased selection:bg-neutral-800 selection:text-white" style="font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji;">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState, useContext, createContext } = React;
+
+      // Utilities
+      const cn = (...args) => args.filter(Boolean).join(" ");
+      const ThemeContext = createContext("dark");
+
+      const useTheme = () => useContext(ThemeContext);
+      const useLucide = () => {
+        useEffect(() => {
+          if (window.lucide?.createIcons) {
+            window.lucide.createIcons({ attrs: { "stroke-width": 1.5 } });
+          }
+        });
+      };
+
+      const platformOptions = [
+        { key: "instagram", label: "Instagram", icon: "instagram" },
+        { key: "linkedin", label: "LinkedIn", icon: "linkedin" },
+      ];
+
+      const toneOptions = [
+        { key: "balanced", label: "Balanced", icon: "sparkles" },
+        { key: "playful", label: "Playful", icon: "smile" },
+        { key: "professional", label: "Professional", icon: "briefcase" },
+        { key: "bold", label: "Bold", icon: "flame" },
+      ];
+
+      const languageOptions = [
+        { key: "english", label: "English", icon: "globe" },
+        { key: "hindi", label: "हिंदी", icon: "globe" },
+        { key: "marathi", label: "मराठी", icon: "globe" },
+        { key: "spanish", label: "Español", icon: "globe" },
+        { key: "french", label: "Français", icon: "globe" },
+        { key: "german", label: "Deutsch", icon: "globe" },
+        { key: "japanese", label: "日本語", icon: "globe" },
+        { key: "korean", label: "한국어", icon: "globe" },
+        { key: "chinese", label: "中文", icon: "globe" },
+        { key: "arabic", label: "العربية", icon: "globe" },
+        { key: "portuguese", label: "Português", icon: "globe" },
+      ];
+
+      // Simulate a server result when API isn't ready
+      function mockAnalysis({ platform = "instagram", tone = "balanced" }) {
+        const baseCaption =
+          "Sun-kissed tones and quiet confidence. Capturing a moment where light meets intention.";
+        const insta = `${baseCaption} ${tone === "playful" ? "✨" : "—"} Turning ideas into impact. #creativelife #design #workflow #buildinpublic`;
+        const linked = `${baseCaption} ${tone === "professional" ? "•" : "—"} Exploring product velocity, visual clarity, and measurable outcomes. Key focus: signal over noise.`;
+        return {
+          model: "gemini-2.5-flash",
+          caption: {
+            instagram: insta,
+            linkedin: linked,
+          },
+          hashtags: ["design", "creativity", "workflow", "focus", "product", "growth"],
+          keywords: ["minimal", "modern", "shadows", "productivity", "workspace", "aesthetic"],
+          vibe: tone === "playful" ? "Playful" : tone === "professional" ? "Professional" : tone === "bold" ? "Bold" : "Balanced",
+          mood: "Confident, Calm",
+          audience: ["Founders", "Designers", "Marketers"],
+          colors: ["#36454F", "#F8F8FF", "#6B8CAE"],
+          objects: ["Laptop", "Mug", "Notebook"],
+
+          confidence: Math.random() * 0.3 + 0.7,
+          bestTimeToPost: {
+            instagram: "Mon-Fri 10am-2pm",
+            linkedin: "Tue-Wed 9am-12pm",
+          },
+          altText: "Minimal dark workspace with soft light and clean lines.",
+          safety: { nsfw: false, sensitive: false, brandSafe: true },
+          readingGrade: "Grade 6",
+        };
+      }
+
+      async function imgToBase64(file, { maxW = 1600, maxH = 1600 } = {}) {
+        const img = new Image();
+        const reader = new FileReader();
+        const dataUrl = await new Promise((res, rej) => {
+          reader.onerror = rej;
+          reader.onload = () => res(reader.result);
+          reader.readAsDataURL(file);
+        });
+        await new Promise((res, rej) => {
+          img.onload = res;
+          img.onerror = rej;
+          img.src = dataUrl;
+        });
+        const { width, height } = img;
+        const scale = Math.min(1, maxW / width, maxH / height);
+        if (scale >= 1) return dataUrl;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(width * scale);
+        canvas.height = Math.floor(height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL("image/jpeg", 0.92);
+      }
+
+      function useMountIn() {
+        const [mounted, setMounted] = useState(false);
+        useEffect(() => {
+          const t = setTimeout(() => setMounted(true), 20);
+          return () => clearTimeout(t);
+        }, []);
+        return mounted;
+      }
+
+      // Shared UI
+      function Badge({ children, tone = "neutral", icon }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        const toneClass = {
+          neutral: isDark
+            ? "bg-neutral-900 text-neutral-200 border-neutral-800"
+            : "bg-neutral-100 text-neutral-800 border-neutral-200",
+          green: isDark
+            ? "bg-emerald-950/40 text-emerald-300 border-emerald-900/60"
+            : "bg-emerald-50 text-emerald-800 border-emerald-200",
+          blue: isDark
+            ? "bg-sky-950/40 text-sky-300 border-sky-900/60"
+            : "bg-sky-50 text-sky-800 border-sky-200",
+          purple: isDark
+            ? "bg-violet-950/40 text-violet-300 border-violet-900/60"
+            : "bg-violet-50 text-violet-800 border-violet-200",
+          amber: isDark
+            ? "bg-amber-950/40 text-amber-300 border-amber-900/60"
+            : "bg-amber-50 text-amber-800 border-amber-200",
+          red: isDark
+            ? "bg-rose-950/40 text-rose-300 border-rose-900/60"
+            : "bg-rose-50 text-rose-800 border-rose-200",
+        }[tone] || "";
+        return (
+          <span className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-all",
+            "hover:-translate-y-0.5",
+            toneClass
+          )}>
+            {icon ? <i data-lucide={icon} className="h-3.5 w-3.5"></i> : null}
+            {children}
+          </span>
+        );
+      }
+
+      function Divider({ className }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        return <div className={cn(isDark ? "bg-white/5" : "bg-neutral-200", "h-px w-full", className)} />;
+      }
+
+      function Card({ children, className }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        return (
+          <div
+            className={cn(
+              "rounded-xl border backdrop-blur transition-all",
+              "hover:shadow-sm hover:-translate-y-0.5",
+              isDark
+                ? "border-white/10 bg-neutral-950/60 supports-[backdrop-filter]:bg-neutral-950/40"
+                : "border-neutral-200 bg-white/70 supports-[backdrop-filter]:bg-white/60",
+              className
+            )}
+          >
+            {children}
+          </div>
+        );
+      }
+
+      function Button({ children, variant = "default", className, onClick, disabled, type = "button", title }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        const variants = {
+          default: isDark ? "bg-white text-neutral-950 hover:bg-neutral-200" : "bg-neutral-900 text-white hover:bg-neutral-800",
+          subtle: isDark ? "bg-neutral-900 hover:bg-neutral-800 text-white border border-white/10" : "bg-neutral-100 hover:bg-neutral-200 text-neutral-900 border border-neutral-200",
+          outline: isDark ? "bg-transparent border border-white/10 hover:bg-white/5 text-white" : "bg-transparent border border-neutral-200 hover:bg-neutral-100 text-neutral-900",
+          ghost: isDark ? "bg-transparent text-neutral-300 hover:bg-white/5" : "bg-transparent text-neutral-700 hover:bg-neutral-100",
+          primary: isDark ? "bg-neutral-100 text-neutral-950 hover:bg-white" : "bg-neutral-900 text-white hover:bg-neutral-800",
+          accent: isDark ? "bg-neutral-800 text-white hover:bg-neutral-700" : "bg-neutral-200 text-neutral-900 hover:bg-neutral-300",
+        };
+        return (
+          <button
+            type={type}
+            onClick={onClick}
+            disabled={disabled}
+            title={title}
+            className={cn(
+              "inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-all",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-black/10",
+              "hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed",
+              variants[variant],
+              className
+            )}
+          >
+            {children}
+          </button>
+        );
+      }
+
+      function SegmentedControl({ value, onChange, options }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        return (
+          <div className={cn(
+            "inline-flex items-center rounded-lg p-1 transition-colors",
+            isDark ? "border border-white/10 bg-neutral-950" : "border border-neutral-200 bg-white"
+          )}>
+            {options.map((opt) => {
+              const active = value === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => onChange(opt.key)}
+                  className={cn(
+                    "relative px-3 py-1.5 text-sm rounded-md transition-all flex items-center gap-2",
+                    active
+                      ? isDark ? "bg-white text-neutral-950 shadow-sm" : "bg-neutral-900 text-white shadow-sm"
+                      : isDark ? "text-neutral-300 hover:bg-white/5" : "text-neutral-700 hover:bg-neutral-100"
+                  )}
+                >
+                  {opt.icon && <i data-lucide={opt.icon} className="h-4 w-4"></i>}
+                  <span className="font-medium">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      }
+
+      function Dropdown({ label, value, onChange, options, icon }) {
+        const [open, setOpen] = useState(false);
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        const ref = useRef(null);
+        useEffect(() => {
+          const handler = (e) => {
+            if (!ref.current?.contains(e.target)) setOpen(false);
+          };
+          document.addEventListener("click", handler);
+          return () => document.removeEventListener("click", handler);
+        }, []);
+        const active = options.find((o) => o.key === value);
+        return (
+          <div className="relative inline-block" ref={ref}>
+            <Button variant="outline" onClick={() => setOpen((v) => !v)} className="min-w-0 max-w-[140px] justify-between text-xs">
+              <div className="flex items-center gap-1.5 truncate">
+                {icon ? <i data-lucide={icon} className="h-3.5 w-3.5 flex-shrink-0"></i> : null}
+                <span className="text-xs truncate">{label}: <span className="font-medium">{active?.label}</span></span>
+              </div>
+              <i data-lucide="chevron-down" className="h-3.5 w-3.5 flex-shrink-0"></i>
+            </Button>
+            {open && (
+              <div className={cn(
+                "absolute z-30 mt-2 min-w-[220px] overflow-hidden rounded-lg shadow-2xl transition-all",
+                isDark ? "border border-white/10 bg-neutral-950" : "border border-neutral-200 bg-white"
+              )}>
+                {options.map((o) => (
+                  <button
+                    key={o.key}
+                    onClick={() => {
+                      onChange(o.key);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2.5 text-left text-sm flex items-center gap-2 transition-colors",
+                      value === o.key
+                        ? isDark ? "text-white bg-white/5" : "text-neutral-900 bg-neutral-100"
+                        : isDark ? "text-neutral-300 hover:bg-white/5" : "text-neutral-700 hover:bg-neutral-100"
+                    )}
+                  >
+                    {o.icon && <i data-lucide={o.icon} className="h-4 w-4"></i>}
+                    <span>{o.label}</span>
+                    {value === o.key ? (
+                      <span className="ml-auto">
+                        <i data-lucide="check" className="h-4 w-4"></i>
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function CopyButton({ text, label = "Copy", className }) {
+        const [copied, setCopied] = useState(false);
+        useLucide();
+        return (
+          <Button
+            variant="outline"
+            className={cn("group", className)}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text || "");
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              } catch (e) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = text || "";
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              }
+            }}
+          >
+            <i data-lucide={copied ? "check" : "copy"} className="h-4 w-4"></i>
+            <span>{copied ? "Copied" : label}</span>
+          </Button>
+        );
+      }
+
+      function LoadingDots() {
+        return (
+          <span className="inline-flex gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce [animation-delay:-0.2s]"></span>
+            <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce [animation-delay:-0.1s]"></span>
+            <span className="h-1.5 w-1.5 rounded-full bg-white/70 animate-bounce"></span>
+          </span>
+        );
+      }
+
+      function Dropzone({ onFile }) {
+        const inputRef = useRef(null);
+        const [dragActive, setDragActive] = useState(false);
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        useLucide();
+        return (
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragActive(true);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragActive(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragActive(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file && file.type.startsWith("image/")) onFile(file);
+            }}
+            className={cn(
+              "relative w-full rounded-2xl border-2 border-dashed p-12 sm:p-16 transition-all",
+              "hover:-translate-y-0.5",
+              isDark ? "border-white/10 hover:border-white/20" : "border-neutral-300 hover:border-neutral-400",
+              dragActive ? (isDark ? "bg-white/5" : "bg-neutral-100") : (isDark ? "bg-neutral-950/40" : "bg-white/60")
+            )}
+            onClick={() => inputRef.current?.click()}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file && file.type.startsWith("image/")) onFile(file);
+              }}
+            />
+            <div className="flex flex-col items-center justify-center gap-4 text-center">
+              <div className="relative">
+                <div className="absolute inset-0 rounded-full animate-ping bg-white/10"></div>
+                <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/10">
+                  <i data-lucide="plus" className="h-7 w-7 text-white"></i>
+                </div>
+              </div>
+              <div>
+                <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight">Add photo here</h2>
+                <p className="mt-2 text-sm text-neutral-400">
+                  Drop an image or click to upload. We’ll analyze it and craft platform-ready captions.
+                </p>
+              </div>
+              <div className="mt-2 flex items-center gap-3">
+                <Button>
+                  <i data-lucide="upload" className="h-4 w-4"></i>
+                  Upload
+                </Button>
+                <Button variant="outline">
+                  <i data-lucide="image" className="h-4 w-4"></i>
+                  Browse files
+                </Button>
+              </div>
+              <div className="mt-4 text-xs text-neutral-500">
+                Images never stored by the client. Analysis runs server-side via your model.
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function Metric({ label, value, icon, hint, tone = "neutral" }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        const toneRing = {
+          neutral: isDark ? "ring-white/10" : "ring-neutral-200",
+          green: isDark ? "ring-emerald-900/50" : "ring-emerald-200",
+          blue: isDark ? "ring-sky-900/50" : "ring-sky-200",
+          purple: isDark ? "ring-violet-900/50" : "ring-violet-200",
+          amber: isDark ? "ring-amber-900/50" : "ring-amber-200",
+          red: isDark ? "ring-rose-900/50" : "ring-rose-200",
+        }[tone];
+        return (
+          <div className="flex items-center gap-3">
+            <div className={cn("rounded-lg p-2 ring-1 transition-colors", isDark ? "bg-neutral-900" : "bg-neutral-100", toneRing)}>
+              <i data-lucide={icon} className={cn("h-4 w-4", isDark ? "text-neutral-300" : "text-neutral-700")}></i>
+            </div>
+            <div className="flex-1">
+              <div className="text-xs text-neutral-400">{" "}{label}</div>
+              <div className="text-sm font-medium">{value}</div>
+              {hint && <div className="text-xs text-neutral-500">{hint}</div>}
+            </div>
+          </div>
+        );
+      }
+
+      function Progress({ value }) {
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        return (
+          <div className={cn("h-2 w-full rounded-full", isDark ? "bg-white/5" : "bg-neutral-200")}>
+            <div
+              className={cn("h-2 rounded-full transition-all", isDark ? "bg-white" : "bg-neutral-900")}
+              style={{ width: `${Math.max(0, Math.min(100, Math.round(value * 100)))}%` }}
+            />
+          </div>
+        );
+      }
+
+      function AnalyticsPanel({ data }) {
+        useLucide();
+        const {
+          keywords = [],
+          vibe,
+          mood,
+          people,
+          colors = [],
+          objects = [],
+          confidence,
+          bestTimeToPost,
+          audience = [],
+          safety,
+          readingGrade,
+          hashtags = [],
+          altText,
+          model,
+
+        } = data || {};
+
+        return (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge tone="blue" icon="bot">Model: {model || "gemini-2.5-flash"}</Badge>
+                <Badge tone="green" icon={safety?.brandSafe ? "shield-check" : "shield"}>
+                  {safety?.brandSafe ? "Brand safe" : "Needs review"}
+                </Badge>
+                {safety?.nsfw ? <Badge tone="red" icon="alert-triangle">NSFW</Badge> : null}
+              </div>
+
+            </div>
+            <Divider />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Metric label="Vibe" value={vibe || "—"} icon="sparkles" tone="purple" />
+              <Metric label="Mood" value={mood || "—"} icon="heart" tone="amber" />
+              <Metric label="Objects" value={objects?.slice(0, 3).join(", ") || "—"} icon="package" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <div className="text-xs text-neutral-400">Keywords</div>
+                <div className="flex flex-wrap gap-2">
+                  {keywords.slice(0, 12).map((k, i) => (
+                    <Badge key={i} tone="neutral" icon="tag">{k}</Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-xs text-neutral-400">Dominant colors</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {colors.slice(0, 6).map((c, i) => {
+                    const isHex = c.startsWith('#');
+                    const colorHex = isHex ? c : '#888888';
+                    const colorName = isHex ? c.toUpperCase() : c;
+                    return (
+                      <button 
+                        key={i} 
+                        className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-all hover:scale-105" 
+                        style={{ borderColor: colorHex + '40', backgroundColor: colorHex + '10' }}
+                        onClick={() => navigator.clipboard.writeText(colorHex)}
+                        title={`Click to copy ${colorName}`}
+                      >
+                        <span 
+                          className="h-3 w-3 rounded-full ring-1" 
+                          style={{ backgroundColor: colorHex, borderColor: colorHex }}
+                        ></span>
+                        <span style={{ color: colorHex }}>{colorName}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <Divider />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <div className="text-xs text-neutral-400">Confidence</div>
+                <div className="mt-2">
+                  <Progress value={confidence ?? 0.85} />
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">{Math.round((confidence ?? 0.85) * 100)}%</div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-400">Best time to post</div>
+                <div className="mt-2 text-sm">
+                  <div className="flex items-center gap-2 text-neutral-300">
+                    <i data-lucide="instagram" className="h-4 w-4"></i>
+                    <span>Instagram: {bestTimeToPost?.instagram || "—"}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-neutral-300">
+                    <i data-lucide="linkedin" className="h-4 w-4"></i>
+                    <span>LinkedIn: {bestTimeToPost?.linkedin || "—"}</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-neutral-400">Reading level</div>
+                <div className="mt-2 text-sm text-neutral-300">{readingGrade || "—"}</div>
+              </div>
+            </div>
+            <Divider />
+            <div>
+              <div className="text-xs text-neutral-400 mb-2">Audience</div>
+              <div className="flex flex-wrap gap-2">
+                {audience.map((a, i) => (
+                  <Badge key={i} tone="neutral" icon="target">{a}</Badge>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-400 mb-2">Suggested hashtags</div>
+              <div className="flex flex-wrap gap-2">
+                {hashtags.slice(0, 12).map((h, i) => (
+                  <Badge key={i} tone="blue" icon="hash">#{h}</Badge>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-neutral-400 mb-2">Suggested Alt text</div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 truncate rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 text-sm text-neutral-300">
+                  {altText || "—"}
+                </div>
+                <CopyButton text={altText || ""} />
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function CaptionBox({ caption, platform, onCopy, onRegenerate, loading }) {
+        useLucide();
+        const theme = useTheme();
+        const isDark = theme === "dark";
+        return (
+          <Card className="p-4 sm:p-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge tone="neutral" icon={platform === "instagram" ? "instagram" : "linkedin"}>
+                  {platform === "instagram" ? "Instagram" : "LinkedIn"} caption
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" onClick={onRegenerate} disabled={loading} title="Regenerate">
+                  {loading ? (
+                    <i data-lucide="loader-2" className="h-4 w-4 animate-spin"></i>
+                  ) : (
+                    <i data-lucide="refresh-ccw" className="h-4 w-4"></i>
+                  )}
+                  {loading ? "Regenerating" : "Regenerate"}
+                </Button>
+                <CopyButton text={caption || ""} />
+              </div>
+            </div>
+            <div className={cn(
+              "mt-3 rounded-lg p-3 text-sm leading-relaxed transition-colors",
+              isDark ? "border border-white/10 bg-neutral-900 text-neutral-200" : "border border-neutral-200 bg-neutral-50 text-neutral-800"
+            )}>
+              {caption || "—"}
+            </div>
+            <div className="mt-2 text-xs text-neutral-500">
+              Optimized for reach, clarity, and platform best practices.
+            </div>
+          </Card>
+        );
+      }
+
+      function ThemeToggle({ theme, setTheme }) {
+        useLucide();
+        const isDark = theme === "dark";
+        return (
+          <Button
+            variant="outline"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+          >
+            <i data-lucide={isDark ? "sun" : "moon"} className="h-4 w-4"></i>
+            <span className="hidden sm:inline">{isDark ? "Light" : "Dark"}</span>
+          </Button>
+        );
+      }
+
+      function App() {
+        const preferredDark = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const [theme, setTheme] = useState(() => localStorage.getItem("theme") || (preferredDark ? "dark" : "light"));
+        const isDark = theme === "dark";
+        const [file, setFile] = useState(null);
+        const [preview, setPreview] = useState(null);
+        const [showPreview, setShowPreview] = useState(false);
+        const [platform, setPlatform] = useState("instagram");
+        const [tone, setTone] = useState("balanced");
+        const [language, setLanguage] = useState(() => localStorage.getItem("caption-language") || "english");
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+        const [data, setData] = useState(null);
+        const [caption, setCaption] = useState("");
+        const [seed, setSeed] = useState(0);
+        const mounted = useMountIn();
+        useLucide();
+
+        useEffect(() => {
+          localStorage.setItem("theme", theme);
+        }, [theme]);
+
+        useEffect(() => {
+          if (!file) return;
+          const url = URL.createObjectURL(file);
+          setPreview(url);
+          return () => URL.revokeObjectURL(url);
+        }, [file]);
+
+        const handleFile = async (f) => {
+          setError("");
+          setData(null);
+          setCaption("");
+          setSeed(0);
+          setFile(f);
+          setLoading(true);
+          try {
+            const formData = new FormData();
+            formData.append('image', f);
+            formData.append('language', language);
+            const res = await fetch("http://localhost:4000/api/analyze-image", {
+              method: "POST",
+              body: formData,
+            });
+            if (!res.ok) throw new Error("Server error");
+            const json = await res.json();
+            const transformedData = {
+              model: "gemini-2.0-flash",
+              caption: {
+                instagram: json.instagramCaption || "",
+                linkedin: json.linkedinCaption || ""
+              },
+              hashtags: json.keywords || [],
+              keywords: json.keywords || [],
+              vibe: json.vibe || "",
+              mood: json.vibe || "",
+              audience: json.audience || ["General"],
+              colors: json.colors || ["#808080", "#FFFFFF", "#000000"],
+              objects: json.objects || ["Image content"],
+
+              confidence: json.confidence || Math.random() * 0.3 + 0.7,
+              bestTimeToPost: json.bestTimeToPost || {
+                instagram: "Mon-Fri 10am-2pm",
+                linkedin: "Tue-Wed 9am-12pm",
+              },
+              altText: json.altText || "AI generated image description",
+              safety: { nsfw: false, sensitive: false, brandSafe: true },
+              readingGrade: json.readingGrade || "Grade 6",
+            };
+            setData(transformedData);
+            setCaption(transformedData.caption[platform] || "");
+          } catch (e) {
+            const mock = mockAnalysis({ platform, tone });
+            setData(mock);
+            setCaption(mock.caption[platform]);
+            setError("Using demo result. Connect the backend to enable live analysis.");
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const regenerate = async () => {
+          if (!file || loading) return;
+          setLoading(true);
+          setError("");
+          try {
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('platform', platform);
+            formData.append('tone', tone);
+            formData.append('language', language);
+            const res = await fetch("http://localhost:4000/api/analyze-image", {
+              method: "POST",
+              body: formData,
+            });
+            if (!res.ok) throw new Error("Server error");
+            const json = await res.json();
+            const transformedData = {
+              model: "gemini-2.0-flash",
+              caption: {
+                instagram: json.instagramCaption || "",
+                linkedin: json.linkedinCaption || ""
+              },
+              hashtags: json.keywords || [],
+              keywords: json.keywords || [],
+              vibe: json.vibe || "",
+              mood: json.vibe || "",
+              audience: json.audience || ["General"],
+              colors: json.colors || ["#808080", "#FFFFFF", "#000000"],
+              objects: json.objects || ["Image content"],
+
+              confidence: json.confidence || Math.random() * 0.3 + 0.7,
+              bestTimeToPost: json.bestTimeToPost || {
+                instagram: "Mon-Fri 10am-2pm",
+                linkedin: "Tue-Wed 9am-12pm",
+              },
+              altText: json.altText || "AI generated image description",
+              safety: json.safety || { nsfw: false, sensitive: false, brandSafe: true },
+              readingGrade: json.readingGrade || "Grade 6",
+            };
+            setData(transformedData);
+            setCaption(transformedData.caption[platform] || "");
+            setSeed((s) => s + 1);
+          } catch (e) {
+            console.error('Regenerate error:', e);
+            const mock = mockAnalysis({ platform, tone });
+            setData(mock);
+            setCaption(mock.caption[platform]);
+            setSeed((s) => s + 1);
+            setError("Using demo result. Connect the backend to enable live analysis.");
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        useEffect(() => {
+          if (data) {
+            setCaption(data?.caption?.[platform] || "");
+          }
+        }, [platform, data]);
+
+        const handlePlatformChange = (newPlatform) => {
+          setPlatform(newPlatform);
+          if (data) {
+            setCaption(data.caption[newPlatform] || "");
+          }
+        };
+
+        const handleToneChange = async (newTone) => {
+          setTone(newTone);
+          if (file && data) {
+            await regenerate();
+          }
+        };
+
+        const handleLanguageChange = async (newLanguage) => {
+          setLanguage(newLanguage);
+          localStorage.setItem("caption-language", newLanguage);
+          if (file && data) {
+            await regenerate();
+          }
+        };
+
+        return (
+          <ThemeContext.Provider value={theme}>
+            <div className={cn(
+              "min-h-screen transition-colors",
+              isDark ? "bg-neutral-950 text-neutral-100" : "bg-neutral-50 text-neutral-900"
+            )}>
+              <div className={cn(
+                "mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 transition-all",
+                mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+              )}>
+                {/* Top bar */}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "flex h-8 w-8 items-center justify-center rounded-md font-semibold tracking-tight transition-colors",
+                      isDark ? "bg-white text-neutral-950" : "bg-neutral-900 text-white"
+                    )}>
+                      CS
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tracking-tight">Caption Studio</div>
+                      <div className="text-xs text-neutral-500">AI photo → caption & analytics</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="neutral" icon="cpu">gemini-2.5-flash</Badge>
+
+                    <ThemeToggle theme={theme} setTheme={setTheme} />
+                  </div>
+                </div>
+
+                <div className="mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Left: Upload / Preview */}
+                  <div className="lg:col-span-5 space-y-4">
+                    <Card className="p-4 sm:p-5">
+                      <div className="space-y-3">
+                        <div className="text-sm font-medium">Upload</div>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                          <SegmentedControl
+                            value={platform}
+                            onChange={handlePlatformChange}
+                            options={platformOptions}
+                          />
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Dropdown
+                              label="Language"
+                              value={language}
+                              onChange={handleLanguageChange}
+                              options={languageOptions}
+                              icon="globe"
+                            />
+                            <Dropdown
+                              label="Tone"
+                              value={tone}
+                              onChange={handleToneChange}
+                              options={toneOptions}
+                              icon="sparkles"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4">
+                        {!file ? (
+                          <Dropzone onFile={handleFile} />
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl border transition-all border-white/10 bg-neutral-900">
+                              {preview ? (
+                                <img
+                                  src={preview}
+                                  alt="Uploaded"
+                                  className="h-full w-full object-cover"
+                                  draggable="false"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-neutral-500">
+                                  <i data-lucide="image" className="h-6 w-6"></i>
+                                </div>
+                              )}
+                              <div className="absolute left-2 top-2 flex items-center gap-2">
+                                <button onClick={() => data && setShowPreview(true)} className="hover:scale-105 transition-transform" disabled={!data}>
+                                  <Badge tone={data ? "blue" : "neutral"} icon="eye">Preview</Badge>
+                                </button>
+                              </div>
+                              <div className="absolute right-2 top-2 flex items-center gap-2">
+                                <Button
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setFile(null);
+                                    setPreview(null);
+                                    setData(null);
+                                    setCaption("");
+                                  }}
+                                  title="Replace"
+                                >
+                                  <i data-lucide="replace" className="h-4 w-4"></i>
+                                  Change
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-neutral-500">
+                                Analysis runs server-side. No images stored by the client.
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button onClick={() => data ? regenerate() : handleFile(file)}>
+                                  {data ? (
+                                    <>
+                                      <i data-lucide="refresh-ccw" className="h-4 w-4"></i>
+                                      <span>Regenerate</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i data-lucide="sparkles" className="h-4 w-4"></i>
+                                      <span>Generate</span>
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                    {file ? (
+                      <Card className="p-4 sm:p-5">
+                        <div className="text-sm font-medium">Post settings</div>
+                        <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="flex items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 transition-all">
+                            <div className="flex items-center gap-2 text-sm text-neutral-300">
+                              <i data-lucide="globe" className="h-4 w-4"></i>
+                              Language
+                            </div>
+                            <div className="text-xs text-neutral-400">
+                              {languageOptions.find(l => l.key === language)?.label || "English"}
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 transition-all">
+                            <div className="flex items-center gap-2 text-sm text-neutral-300">
+                              <i data-lucide="hashtag" className="h-4 w-4"></i>
+                              Hashtags
+                            </div>
+                            <div className="text-xs text-neutral-400">Auto</div>
+                          </div>
+                          <div className="flex items-center justify-between rounded-lg border border-white/10 bg-neutral-900 px-3 py-2 transition-all">
+                            <div className="flex items-center gap-2 text-sm text-neutral-300">
+                              <i data-lucide="message-square" className="h-4 w-4"></i>
+                              Tone
+                            </div>
+                            <div className="text-xs text-neutral-400 capitalize">
+                              {tone}
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    ) : null}
+                  </div>
+
+
+                  <div className="lg:col-span-7 space-y-4">
+                    {!file ? (
+                      <Card className="p-6 sm:p-10 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="text-lg font-medium">Awaiting image</div>
+                          <p className="mt-2 text-sm text-neutral-400">Upload a photo to generate captions and insights.</p>
+                        </div>
+                      </Card>
+                    ) : loading ? (
+                      <>
+                        <Card className="p-4 sm:p-5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <i data-lucide="loader-2" className="h-4 w-4 animate-spin"></i>
+                              <div className="text-sm font-medium">Analyzing image</div>
+                            </div>
+                            <Badge tone="neutral" icon="cpu">gemini-2.5-flash</Badge>
+                          </div>
+                          <div className="mt-4 space-y-3">
+                            <div className="h-16 rounded-lg bg-white/5 animate-pulse"></div>
+                            <div className="h-24 rounded-lg bg-white/5 animate-pulse"></div>
+                            <div className="h-32 rounded-lg bg-white/5 animate-pulse"></div>
+                          </div>
+                          <div className="mt-4 text-xs text-neutral-500">
+                            Crafting platform-optimized caption <LoadingDots /> extracting mood, vibe, and keywords.
+                          </div>
+                        </Card>
+                        <Card className="p-4 sm:p-5">
+                          <div className="h-40 rounded-lg bg-white/5 animate-pulse"></div>
+                        </Card>
+                      </>
+                    ) : data ? (
+                      <>
+                        <CaptionBox
+                          caption={caption}
+                          platform={platform}
+                          onCopy={() => {}}
+                          onRegenerate={regenerate}
+                          loading={loading}
+                        />
+                        <Card className="p-4 sm:p-5">
+                          <AnalyticsPanel data={data} />
+                        </Card>
+                      </>
+                    ) : (
+                      <Card className="p-6 sm:p-8">
+                        <div className="flex items-center gap-2">
+                          <i data-lucide="info" className="h-4 w-4 text-neutral-400"></i>
+                          <div className="text-sm font-medium">Ready when you are</div>
+                        </div>
+                        <p className="mt-2 text-sm text-neutral-400">
+                          Drop an image to see extracted keywords, mood, vibe, and a polished caption.
+                        </p>
+                      </Card>
+                    )}
+
+                    {error ? (
+                      <div className="rounded-lg border border-amber-900/60 bg-amber-950/40 px-3.5 py-3 text-sm text-amber-200">
+                        <div className="flex items-center gap-2">
+                          <i data-lucide="alert-triangle" className="h-4 w-4"></i>
+                          {error}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+
+
+                <div className={cn("mt-10 pt-6 text-xs", isDark ? "border-t border-white/5 text-neutral-500" : "border-t border-neutral-200 text-neutral-600")}>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      Built for creators and teams. Drop a photo → get captions and insights.
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="inline-flex items-center gap-1">
+                        <i data-lucide="shield" className="h-3.5 w-3.5"></i>
+                        Private by default
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <i data-lucide="bolt" className="h-3.5 w-3.5"></i>
+                        Fast inference
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Platform Preview Modal */}
+                {showPreview && preview && data && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4" onClick={() => setShowPreview(false)}>
+                    <div className="relative w-full max-w-sm mx-auto" onClick={(e) => e.stopPropagation()}>
+                      {platform === "instagram" ? (
+                        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200">
+                          {/* Instagram Header */}
+                          <div className="flex items-center p-4 bg-white border-b border-gray-100">
+                            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 via-pink-500 to-orange-400 rounded-full flex items-center justify-center ring-2 ring-white">
+                              <span className="text-white text-sm font-bold">U</span>
+                            </div>
+                            <div className="ml-3">
+                              <div className="font-semibold text-gray-900 text-sm">username</div>
+                              <div className="text-xs text-gray-500">2 minutes ago</div>
+                            </div>
+                            <button className="ml-auto">
+                              <i data-lucide="more-horizontal" className="h-5 w-5 text-gray-600"></i>
+                            </button>
+                          </div>
+                          
+                          {/* Instagram Image */}
+                          <div className="relative">
+                            <img src={preview} alt="Post" className="w-full aspect-square object-cover" />
+                          </div>
+                          
+                          {/* Instagram Actions & Caption */}
+                          <div className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-4">
+                                <i data-lucide="heart" className="h-6 w-6 text-gray-800 hover:text-red-500 cursor-pointer transition-colors"></i>
+                                <i data-lucide="message-circle" className="h-6 w-6 text-gray-800 hover:text-gray-600 cursor-pointer transition-colors"></i>
+                                <i data-lucide="send" className="h-6 w-6 text-gray-800 hover:text-gray-600 cursor-pointer transition-colors"></i>
+                              </div>
+                              <i data-lucide="bookmark" className="h-6 w-6 text-gray-800 hover:text-gray-600 cursor-pointer transition-colors"></i>
+                            </div>
+                            <div className="text-sm font-semibold text-gray-900 mb-1">142 likes</div>
+                            <div className="text-sm text-gray-900 leading-relaxed">
+                              <span className="font-semibold">username</span> {caption}
+                            </div>
+                            <div className="text-xs text-gray-500 mt-2">View all 23 comments</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-200">
+                          {/* LinkedIn Header */}
+                          <div className="flex items-start p-4 bg-white">
+                            <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                              <span className="text-white font-bold text-lg">U</span>
+                            </div>
+                            <div className="ml-3 flex-1">
+                              <div className="font-semibold text-gray-900">Your Name</div>
+                              <div className="text-sm text-gray-600">Professional Title • 2nd</div>
+                              <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                                <span>2m</span>
+                                <span>•</span>
+                                <i data-lucide="globe" className="h-3 w-3"></i>
+                              </div>
+                            </div>
+                            <button className="text-gray-600 hover:text-gray-800">
+                              <i data-lucide="more-horizontal" className="h-5 w-5"></i>
+                            </button>
+                          </div>
+                          
+                          {/* LinkedIn Content */}
+                          <div className="px-4 pb-3">
+                            <div className="text-gray-900 text-sm leading-relaxed whitespace-pre-wrap mb-3">{caption}</div>
+                            <img src={preview} alt="Post" className="w-full rounded-lg border border-gray-200" />
+                          </div>
+                          
+                          {/* LinkedIn Actions */}
+                          <div className="border-t border-gray-100 px-4 py-3">
+                            <div className="flex items-center text-xs text-gray-600 mb-3">
+                              <span>👍 ❤️ 47 reactions • 12 comments</span>
+                            </div>
+                            <div className="flex items-center justify-around">
+                              <button className="flex items-center gap-2 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors">
+                                <i data-lucide="thumbs-up" className="h-5 w-5"></i>
+                                <span className="text-sm font-medium">Like</span>
+                              </button>
+                              <button className="flex items-center gap-2 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors">
+                                <i data-lucide="message-square" className="h-5 w-5"></i>
+                                <span className="text-sm font-medium">Comment</span>
+                              </button>
+                              <button className="flex items-center gap-2 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors">
+                                <i data-lucide="repeat" className="h-5 w-5"></i>
+                                <span className="text-sm font-medium">Repost</span>
+                              </button>
+                              <button className="flex items-center gap-2 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg transition-colors">
+                                <i data-lucide="send" className="h-5 w-5"></i>
+                                <span className="text-sm font-medium">Send</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Close Button */}
+                      <button
+                        onClick={() => setShowPreview(false)}
+                        className="absolute -top-3 -right-3 w-10 h-10 bg-white text-gray-700 rounded-full flex items-center justify-center hover:bg-gray-100 transition-colors shadow-xl border border-gray-200"
+                        title="Close preview"
+                      >
+                        <i data-lucide="x" className="h-5 w-5"></i>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          </ThemeContext.Provider>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  
+</body></html>
+
+
+
+
+
+
+
+
+
